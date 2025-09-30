@@ -5,6 +5,7 @@
 const int MAX_STRING = 100;
 
 /*
+    (OPENRING)
     Task:
     Write a program that takes data from process zero and sends it to all of
     the other processes by sending it in a ring. That is, process i should
