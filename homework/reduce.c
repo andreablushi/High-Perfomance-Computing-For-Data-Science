@@ -3,8 +3,6 @@
 #include <stdlib.h>   // For rand(), srand()
 #include <mpi.h>      /* For MPI functions */
 
-const int MAX_STRING = 100;
-
 /*
     REDUCE + REDUCEALL + BROADCAST
     Task:

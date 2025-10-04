@@ -38,17 +38,13 @@ int main(void) {
         char msg[MAX_STRING];
         int next_rank = (my_rank + 1) % comm_sz;          // Next process in the ring
         int prev_rank = (my_rank - 1 + comm_sz) % comm_sz; // Previous process in the ring
-
         // Receive the message from the previous process
         MPI_Recv(msg, MAX_STRING, MPI_CHAR, prev_rank, 0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
         printf("I'm process %d, received from process %d, sending to process %d\n",
                my_rank, prev_rank, next_rank);
-
         // Send the message to the next process
         MPI_Send(msg, strlen(msg) + 1, MPI_CHAR, next_rank, 0, MPI_COMM_WORLD);
-
         // Counting one iteration
         if(my_rank == 0){
             count++;
