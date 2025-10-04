@@ -10,6 +10,7 @@ Run it using: mpirun –n 2
 What can we argue about using n>2? There is no need for more process
 Would your application be resilient to that? Yes, I check the number of processes
 */
+
 int main(int argc, char** argv) {
     int my_rank, comm_size;
     int ping_pong_count = 0;
@@ -25,6 +26,7 @@ int main(int argc, char** argv) {
         MPI_Finalize();
         return 0;
     }
+    
     // Supposing there are only two process, I calculate the other process rank
     partner_rank = (my_rank + 1) % 2;
 
