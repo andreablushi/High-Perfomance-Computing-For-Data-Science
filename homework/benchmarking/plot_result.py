@@ -1,103 +1,101 @@
-#!/usr/bin/env python
 """
-plot_result_from_jobs.py - No external dependencies version
-Outputs data in a format that can be plotted manually or with basic tools
-"""
+Simple script to:
+ - read files matching comm.job.o* (or a provided glob pattern),
+ - extract lines in the format: n, time(sec), RATE(MB/SEC)
+ - save a CSV sorted by n
+ - generate a single PNG containing both plots (time vs n and rate vs n)
 
-import os
+Usage example:
+  python3 plot_result.py --pattern "comm.job.o*" --out comm_results.csv
+
+Generates: comm_results.csv and time_and_rate.png by default.
+"""
+import re
 import glob
+import argparse
+import os
+from pathlib import Path
 
-# Define paths
-base_dir = "./High-Perfomance-Computing-For-Data-Science/benchmarking"
-output_file = os.path.join(base_dir, "benchmark_results.txt")
-plot_script_file = os.path.join(base_dir, "create_plot.gnuplot")
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# Find all job output files
-job_files = glob.glob(os.path.join(base_dir, "comm.job.o*"))
-if not job_files:
-    print("No job output files found in {}".format(base_dir))
-    exit(1)
+# Regular expression to match lines like: 1024, 0.000001669, 1170.285714
+LINE_RE = re.compile(r'^\s*(\d+)\s*,\s*([0-9.eE+-]+)\s*,\s*([0-9.eE+-]+)\s*$')
 
-# Initialize empty lists
-n_values = []
-rates = []
-times = []
+def parse_files(pattern):
+    """
+    Parse all files matching the given glob pattern and collect rows.
+    Returns a pandas DataFrame with columns: n, time_s, rate_mb_s, source.
+    """
+    rows = []
+    files = sorted(glob.glob(pattern))
+    for f in files:
+        try:
+            with open(f, 'r') as fh:
+                for ln in fh:
+                    m = LINE_RE.match(ln)
+                    if m:
+                        n = int(m.group(1))
+                        time_s = float(m.group(2))
+                        rate = float(m.group(3))
+                        rows.append({'n': n, 'time_s': time_s, 'rate_mb_s': rate, 'source': os.path.basename(f)})
+        except Exception:
+            # ignore unreadable files
+            continue
+    return pd.DataFrame(rows)
 
-# Process each job file
-for file in job_files:
-    print("Processing file: {}".format(file))
-    with open(file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            # Skip header lines and empty lines
-            if not line or line.startswith('#') or 'n,' in line or 'time(sec),' in line:
-                continue
-            parts = line.split(',')
-            if len(parts) >= 3:
-                try:
-                    n_val = int(parts[0].strip())
-                    time_val = float(parts[1].strip())
-                    rate_val = float(parts[2].strip())
-                    n_values.append(n_val)
-                    times.append(time_val)
-                    rates.append(rate_val)
-                    print("  n={}, time={}, rate={}".format(n_val, time_val, rate_val))
-                except ValueError as e:
-                    print("  Warning: Could not parse line: {} - {}".format(line, e))
-                    continue
+def save_csv(df, out_path):
+    """
+    Save the DataFrame sorted by 'n' to CSV and return the sorted DataFrame.
+    """
+    df_sorted = df.sort_values('n').reset_index(drop=True)
+    df_sorted.to_csv(out_path, index=False)
+    return df_sorted
 
-if not n_values:
-    print("No valid data found in job files.")
-    exit(1)
+def plot_both(df, out_png):
+    """
+    Create a single PNG with two subplots (time vs n on top, rate vs n below).
+    X-axis is log-scaled base 2 (n in bytes).
+    """
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    ax_time, ax_rate = axs
 
-# Combine and sort data
-data = list(zip(n_values, rates, times))
-data.sort(key=lambda x: x[0])  # Sort by n
+    # Time plot (top)
+    ax_time.plot(df['n'], df['time_s'], marker='o', linestyle='-', color='tab:blue')
+    ax_time.set_xscale('log', base=2)
+    ax_time.set_ylabel('Time (s)')
+    ax_time.set_title('Time vs n')
+    ax_time.grid(True, which='both', ls='--', lw=0.5)
 
-# Write results to file
-with open(output_file, 'w') as f:
-    f.write("# n(bytes)\tRate(MB/s)\tTime(sec)\n")
-    for n, rate, time in data:
-        f.write("{}\t{:.3f}\t{:.6f}\n".format(n, rate, time))
+    # Rate plot (bottom)
+    ax_rate.plot(df['n'], df['rate_mb_s'], marker='o', linestyle='-', color='tab:green')
+    ax_rate.set_xscale('log', base=2)
+    ax_rate.set_xlabel('n (bytes)')
+    ax_rate.set_ylabel('Rate (MB/s)')
+    ax_rate.set_title('Bandwidth (RATE) vs n')
+    ax_rate.grid(True, which='both', ls='--', lw=0.5)
 
-print("Data written to {}".format(output_file))
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
 
-# Create gnuplot script
-gnuplot_script = """
-set terminal png size 800,600
-set output 'pingpong_plot.png'
-set xlabel 'Message size (bytes)'
-set ylabel 'Rate (MB/s)'
-set logscale x 2
-set grid
-set title 'MPI Ping-Pong Benchmark'
-plot 'benchmark_results.txt' using 1:2 with linespoints title 'Rate (MB/s)'
-"""
+def main():
+    p = argparse.ArgumentParser(description='Parse comm.job.o* and plot results')
+    p.add_argument('--pattern', default='comm.job.o*', help='glob pattern for input files')
+    p.add_argument('--out', default='comm_results.csv', help='output CSV file')
+    p.add_argument('--plot', default='time_and_rate.png', help='output PNG containing both plots')
+    args = p.parse_args()
 
-with open(plot_script_file, 'w') as f:
-    f.write(gnuplot_script)
+    df = parse_files(args.pattern)
+    if df.empty:
+        print('No matching lines found. Check the glob pattern or file format.')
+        return
 
-print("Gnuplot script created at {}".format(plot_script_file))
+    df_sorted = save_csv(df[['n','time_s','rate_mb_s']].drop_duplicates(subset=['n','time_s','rate_mb_s']), args.out)
+    plot_both(df_sorted, args.plot)
 
-# Print summary and instructions
-print("\n" + "="*50)
-print("BENCHMARK SUMMARY")
-print("="*50)
+    print(f'CSV saved: {Path(args.out).absolute()}')
+    print(f'Combined plot saved: {Path(args.plot).absolute()}')
 
-# Find statistics
-max_rate = max(rates)
-min_rate = min(rates)
-max_rate_n = n_values[rates.index(max_rate)]
-min_rate_n = n_values[rates.index(min_rate)]
-
-print("Total data points: {}".format(len(data)))
-print("Message size range: {} - {} bytes".format(min(n_values), max(n_values)))
-print("Max rate: {:.2f} MB/s at {} bytes".format(max_rate, max_rate_n))
-print("Min rate: {:.2f} MB/s at {} bytes".format(min_rate, min_rate_n))
-print("\nData file: {}".format(output_file))
-print("To create plot, run: gnuplot {}".format(plot_script_file))
-print("\nRaw data:")
-print("n(bytes)\tRate(MB/s)\tTime(sec)")
-print("-" * 40)
-for n, rate, time in data:
-    print("{:8d}\t{:10.2f}\t{:10.6f}".format(n, rate, time))
+if __name__ == '__main__':
+    main()

@@ -38,30 +38,30 @@ int main(int argc, char** argv) {
             fprintf(stderr, "Rank %d: malloc failed for size %zu\n", my_rank, size);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
-        /* Starting the timer*/
-        double t_start = MPI_Wtime();
+
         // Communication
         if (my_rank == 0) {
+            /* Starting the timer*/
+            double t_start = MPI_Wtime();
             MPI_Send(buf, (int)size, MPI_BYTE, 1, 200, MPI_COMM_WORLD);
             MPI_Recv(buf, (int)size, MPI_BYTE, 1, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            /* Stopping timer*/
+            double t_end = MPI_Wtime();
+            // Calculation
+            double time = t_end - t_start; // Total time used
+            double one_way = time / 2.0;    // Cost of a single send-rcv pair
+            double size_MB = ((double)size) / (1024.0 * 1024.0);   // Current size considered
+            double rate = (one_way > 0.0) ? (size_MB / one_way) : 0.0;  // Calculating the bandwidth
+            /* Print results on the casv from rank 0 (single consolidated output) */
+            printf("%zu, %.9f, %.6f\n", size, time, rate);
+            fflush(stdout);
         } else {
             MPI_Recv(buf, (int)size, MPI_BYTE, 0, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Send(buf, (int)size, MPI_BYTE, 0, 200, MPI_COMM_WORLD);
         }
-        /* Stopping timer*/
-        double t_end = MPI_Wtime();
 
-        // Calculation
-        double time = t_end - t_start; // Total time used
-        double one_way = time / 2.0;    // Cost of a single send-rcv pair
-        double size_MB = ((double)size) / (1024.0 * 1024.0);   // Current size considered
-        double rate = (one_way > 0.0) ? (size_MB / one_way) : 0.0;  // Calculating the bandwidth
 
-        /* Print results on the casv from rank 0 (single consolidated output) */
-        if (my_rank == 0) {
-            printf("%zu, %.9f, %.6f\n", size, time, rate);
-            fflush(stdout);
-        }
+
 
         free(buf);
     }
