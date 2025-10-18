@@ -6,8 +6,8 @@
 #define MAX_SIZE (1 << 20) // 1 MiB
 
 /*
-Implement a simple send-receive benchmark to measure time and bandwidth for message sizes 1,2,3,4.... up to max-size 1MB.
-This simple exercise
+ Simple send-receive benchmark to measure time and bandwidth
+ for message sizes doubling each iteration up to 1 MB.
 */
 int main(int argc, char** argv) {
     int my_rank, comm_size;
@@ -15,57 +15,66 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
-    // Check if there are more than 2 processes
-    // Recycled from pingpong
-    if(comm_size > 2){
-        printf("Too much processes");
+    // Allow only 2 processes (ping-pong)
+    if (comm_size > 2) {
+        if (my_rank == 0)
+            printf("Too many processes (use 2 max)\n");
         MPI_Finalize();
         return 0;
     }
 
-    // Setting the CSV
-    /* Header for output (CSV) */
+    // Header for CSV output
     if (my_rank == 0) {
         printf("# n, time(sec), RATE(MB/SEC)\n");
         fflush(stdout);
     }
 
-    size_t size;
-    /* Loop over message sizes doubling each time: 1,2,4,... up to max_size */
-    for (size = 1; size <= MAX_SIZE; size <<= 1) {
-        char *buf = (char*) malloc(size);
-        if (!buf) {
-            fprintf(stderr, "Rank %d: malloc failed for size %zu\n", my_rank, size);
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-
-        // Communication
-        if (my_rank == 0) {
-            /* Starting the timer*/
-            double t_start = MPI_Wtime();
-            MPI_Send(buf, (int)size, MPI_BYTE, 1, 200, MPI_COMM_WORLD);
-            MPI_Recv(buf, (int)size, MPI_BYTE, 1, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            /* Stopping timer*/
-            double t_end = MPI_Wtime();
-            // Calculation
-            double time = t_end - t_start; // Total time used
-            double one_way = time / 2.0;    // Cost of a single send-rcv pair
-            double size_MB = ((double)size) / (1024.0 * 1024.0);   // Current size considered
-            double rate = (one_way > 0.0) ? (size_MB / one_way) : 0.0;  // Calculating the bandwidth
-            /* Print results on the casv from rank 0 (single consolidated output) */
-            printf("%zu, %.9f, %.6f\n", size, time, rate);
-            fflush(stdout);
-        } else {
-            MPI_Recv(buf, (int)size, MPI_BYTE, 0, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(buf, (int)size, MPI_BYTE, 0, 200, MPI_COMM_WORLD);
-        }
-
-
-
-
-        free(buf);
+    // Allocate a single buffer for all message sizes
+    char *buf = (char*) malloc(MAX_SIZE);
+    if (!buf) {
+        fprintf(stderr, "Rank %d: malloc failed for size %d\n", my_rank, MAX_SIZE);
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
+    size_t size;
+    for (size = 1; size <= MAX_SIZE; size <<= 1) {
+        int tag = 100 + (int)size; // unique tag per message size
+
+        // Warm-up phase (not measured)
+        if (my_rank == 0) {
+            MPI_Send(buf, (int)size, MPI_BYTE, 1, tag, MPI_COMM_WORLD);
+            MPI_Recv(buf, (int)size, MPI_BYTE, 1, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        } else {
+            MPI_Recv(buf, (int)size, MPI_BYTE, 0, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(buf, (int)size, MPI_BYTE, 0, tag, MPI_COMM_WORLD);
+        }
+
+        // Synchronize before timing
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        // Timed communication
+        double t_start = MPI_Wtime();
+        if (my_rank == 0) {
+            MPI_Send(buf, (int)size, MPI_BYTE, 1, tag, MPI_COMM_WORLD);
+            MPI_Recv(buf, (int)size, MPI_BYTE, 1, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        } else {
+            MPI_Recv(buf, (int)size, MPI_BYTE, 0, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(buf, (int)size, MPI_BYTE, 0, tag, MPI_COMM_WORLD);
+        }
+        double t_end = MPI_Wtime();
+
+        // Only rank 0 prints the result
+        if (my_rank == 0) {
+            double time = t_end - t_start; // Total round-trip time
+            double one_way = time / 2.0;   // One direction
+            double size_MB = ((double)size) / (1024.0 * 1024.0);
+            double rate = (one_way > 0.0) ? (size_MB / one_way) : 0.0;
+            printf("%zu, %.9f, %.6f\n", size, time, rate);
+            fflush(stdout);
+        }
+    }
+
+    free(buf);
     MPI_Finalize();
     return 0;
 }
