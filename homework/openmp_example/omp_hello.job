@@ -1,0 +1,9 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=10:mem=2gb
+
+# set max execution time
+#PBS -l walltime=0:01:00
+#set the queue  
+#PBS -q short_cpuQ   
+
+./High-Perfomance-Computing-For-Data-Science/homework/openmp_example/omp_hello
